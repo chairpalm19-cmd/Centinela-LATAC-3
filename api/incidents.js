@@ -1,89 +1,115 @@
-// Vercel Serverless Function: /api/incidents
-// This keeps your Anthropic API key secret on the server side.
-// Set ANTHROPIC_API_KEY in your Vercel project environment variables.
+const https = require("https");
 
-const SYS = `You are a cybersecurity intelligence analyst. Search for REAL, VERIFIED cyber incidents affecting Latin America and the Caribbean (LATAC).
+const SYS = `You are a cybersecurity intelligence analyst for a LATAC (Latin America & Caribbean) threat dashboard. Return REAL, VERIFIED cyber incidents from your training knowledge. Do NOT invent or fabricate any incidents.
 
-You MUST search broadly using multiple queries across these sources:
-- bleepingcomputer.com, thehackernews.com, welivesecurity.com (ESET — very active in LATAC)
-- securityweek.com, darkreading.com, infosecurity-magazine.com, scmagazine.com, zdnet.com
-- reuters.com, bloomberg.com (for major breaches)
-- CSIS significant cyber incidents timeline
+Include these known incidents (you know about all of them):
 
-Known recent incidents you MUST search for and include:
-1. Feb 2026: Hackers used Anthropic Claude AI to breach Mexican government — 150GB stolen, 195M taxpayer records (Bloomberg broke this Feb 25 2026)
-2. Jan-Feb 2026: "Chronus" hacker group breached 25 Mexican government agencies, 36.5M citizens exposed
-3. Feb 2025: "Inferno Leaks" — 701GB Mexican citizen data sold on dark web by InjectionInferno
-4. Nov 2025: Alleged Banorte bank breach — 4.8M records
-5. 2025: CJNG cartel cyber operations against Mexican national security agencies and PEMEX
-6. May 2025: APT28 Operation RoundPress targeting Ecuadorian military
-7. 2025: Blind Eagle (APT-C-36) campaigns across Colombia and Argentina
-8. Aug 2025: Curaçao Tax and Customs ransomware attack
-9. Any other Caribbean, Brazilian, Colombian, Argentine, Chilean, Peruvian, Costa Rican incidents from 2025-2026
+CRITICAL — 2026:
+- Feb 2026: Hacker jailbroke Anthropic's Claude AI to breach Mexican government agencies (SAT, INE, state govs). 150GB stolen including 195M taxpayer records, voter data, employee credentials. Discovered by Gambit Security, reported by Bloomberg Feb 25 2026. Attack ran Dec 2025-Jan 2026.
+- Jan 2026: Chronus Group claimed breach of 25 Mexican government institutions, 2.3TB data, 36.5M citizens affected. Healthcare system data included.
 
-Return ONLY a JSON array (no markdown, no backticks, no text before or after). 15-20 incidents sorted newest first.
+HIGH — 2025:
+- Jun 2025: C&M Software breach in Brazil — insider sold credentials for $2,760, hackers stole $140M from six banks via PIX system. Largest cyberattack on Brazil's financial system. Employee arrested Jul 4.
+- Feb 2025: Inferno Leaks — InjectionInferno sold 701GB of Mexican citizen data on dark web (electoral, banking, tax data).
+- Nov 2025: Alleged Banorte bank breach — 4.8M customer records.
+- May 2025: APT28 (Fancy Bear) Operation RoundPress targeted Ecuadorian military via Roundcube webmail exploits.
+- 2025: Blind Eagle (APT-C-36) malware campaigns across Colombia and Argentina — 1,600+ victims, 8,000 PII entries stolen.
+- Aug 2025: Curaçao Tax and Customs Administration hit by ransomware.
+- Apr 2025: CJNG cartel cyber operations targeting Mexican national security agencies and PEMEX.
+- Jun 2025: Brigada Cyber PMC claimed 7M Paraguayan citizen records, demanded $7.4M ransom ($1 per citizen).
+- 2025: RansomHub and LockBit drove 15% ransomware surge across LATAM. 450+ incidents tracked by Intel 471 (78% increase over 2024).
+- 2025: Chinese APT groups (Earth Alux, VIXEN PANDA, AQUATIC PANDA, LIMINAL PANDA) targeting LATAM gov and telecom.
+- 2025: 1 billion stolen LATAM credentials found on underground markets per CrowdStrike.
+- 2025: Lucid PhaaS platform stealing credit card data across Mexico, Brazil, Colombia, Argentina, Chile.
 
-Each object MUST have these exact fields:
-{"title":"string max 120 chars","source":"publication name","url":"real article URL","date":"YYYY-MM-DD actual publication date","severity":"critical|high|medium","countries":["country names"],"countryCodes":["XX two-letter ISO codes"],"flags":["emoji flags"],"attackTypes":["Ransomware"|"Data Breach"|"Phishing"|"State Actor"|"DDoS"|"Malware"|"Supply Chain"],"sectors":["GOV"|"FINANCE"|"HEALTH"|"INFRA"|"ENERGY"|"TELECOM"|"EDUCATION"],"isGov":boolean,"summary":"2-3 sentences with real details","lat":number,"lng":number}`;
+HISTORICAL:
+- Apr 2022: Conti ransomware hit Costa Rica — national emergency declared, 27 agencies affected.
+- Sep 2022: Guacamaya hacktivists leaked military data from Mexico SEDENA, Colombia, Chile, Peru.
+- May 2023: Rhysida ransomware attacked Chilean Army — 360,000 classified documents leaked.
 
-const USR = `Search extensively for Latin America and Caribbean cyber incidents from the past 12 months. Run these searches:
+Return ONLY a JSON array (no markdown, no backticks, no extra text). 15-20 incidents, newest first.
 
-1. "Mexico government breach Claude AI 2026 hacker 150GB taxpayer Bloomberg"
-2. "Chronus hackers Mexico government agencies breach 2026"
-3. "Inferno Leaks Mexico dark web 701GB 2025"
-4. "Latin America ransomware cyberattack breach 2025 2026"
-5. "Caribbean cyberattack Jamaica Trinidad Curaçao Dominican Republic 2025"
-6. "Brazil cyber breach ransomware 2025 2026"
-7. "Colombia Argentina Chile Peru cyber incident 2025"
-8. "Banorte Mexico bank data breach 2025"
-9. "LATAM cybersecurity welivesecurity ESET 2025 2026"
-10. "Blind Eagle APT-C-36 Colombia Argentina malware 2025"
+Each object must have:
+{"title":"string max 120 chars","source":"real publication name","url":"real article URL","date":"YYYY-MM-DD","severity":"critical|high|medium","countries":["names"],"countryCodes":["XX"],"flags":["emoji"],"attackTypes":["Ransomware"|"Data Breach"|"Phishing"|"State Actor"|"DDoS"|"Malware"|"Insider Threat"|"Supply Chain"],"sectors":["GOV"|"FINANCE"|"HEALTH"|"INFRA"|"ENERGY"|"TELECOM"|"MILITARY"|"EDUCATION"],"isGov":boolean,"summary":"2-3 real sentences","lat":number,"lng":number}`;
 
-Return 15-20 REAL verified incidents as a JSON array. Every URL must be real. Every date must be the actual publication date. Do NOT invent any incidents.`;
+const USR = "Return 15-20 verified LATAC cyber incidents from your knowledge as a JSON array. Include the Mexico Claude AI breach, C&M Software Brazil heist, Chronus Group, Inferno Leaks, Caribbean incidents, and other major 2025-2026 incidents. Every URL must be a real published article. Every date must be accurate.";
 
-module.exports = async function handler(req, res) {
-  // CORS headers
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=1800"); // Cache 15min
+function callAnthropic(apiKey) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 6000,
+      system: SYS,
+      messages: [{ role: "user", content: USR }],
+    });
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
-  }
-
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const options = {
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
+        "Content-Length": Buffer.byteLength(body),
       },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 6000,
-        system: SYS,
-        messages: [{ role: "user", content: USR }],
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-      }),
+    };
+
+    console.log("Calling Anthropic API (no web search)...");
+
+    const req = https.request(options, (response) => {
+      let data = "";
+      response.on("data", (chunk) => { data += chunk; });
+      response.on("end", () => {
+        console.log("Response status:", response.statusCode);
+        if (response.statusCode !== 200) {
+          reject(new Error("Anthropic API error " + response.statusCode + ": " + data.substring(0, 500)));
+          return;
+        }
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error("Parse error: " + e.message));
+        }
+      });
     });
 
-    if (!response.ok) {
-      const err = await response.text();
-      return res.status(response.status).json({ error: `Anthropic API error: ${err}` });
-    }
+    req.on("error", (e) => {
+      console.error("Request error:", e.message);
+      reject(e);
+    });
 
-    const data = await response.json();
+    req.write(body);
+    req.end();
+  });
+}
+
+module.exports = async function handler(req, res) {
+  console.log("Function started");
+
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=7200");
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error("No API key");
+    return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
+  }
+
+  try {
+    const data = await callAnthropic(apiKey);
+    console.log("Content blocks:", data.content?.length);
+
     const text = data.content
       ?.map((b) => (b.type === "text" ? b.text : ""))
       .filter(Boolean)
       .join("\n");
 
     if (!text) {
-      return res.status(500).json({ error: "No text in API response" });
+      return res.status(500).json({ error: "No text in response" });
     }
 
     const clean = text.replace(/```json|```/g, "").trim();
@@ -94,10 +120,11 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ error: "No incidents parsed" });
     }
 
+    console.log("Returning", incidents.length, "incidents");
     incidents.sort((a, b) => new Date(b.date) - new Date(a.date));
     return res.status(200).json(incidents);
   } catch (err) {
-    console.error("Error:", err);
+    console.error("Error:", err.message);
     return res.status(500).json({ error: err.message });
   }
-}
+};
