@@ -281,7 +281,7 @@ export default function CentinelaLATAC() {
     if(fetchedRef.current) return;
     fetchedRef.current=true; setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/incidents");
+  const res = await fetch(window.location.origin + "/api/incidents");
       if(!res.ok) throw new Error(`API error ${res.status}`);
       const arr = await res.json();
       if(!Array.isArray(arr)||!arr.length) throw new Error("No incidents returned");
